@@ -85,7 +85,6 @@ canvas{display:none}
   <div id="status" class="status" hidden></div>
 
   <div class="row">
-    <button class="btn" id="nowBtn" type="button">Şimdi oku</button>
     <button class="btn danger" id="resetBtn" type="button">Sıfırla</button>
   </div>
 
@@ -101,12 +100,12 @@ canvas{display:none}
     </form>
   </details>
 
-  <p class="hint">Belgeyi düz tut, iyi ışıkta ve tutar ile onay kodu çerçevenin içinde kalsın. Görüntü bir an sabit kalınca kendiliğinden okunur. Aynı belge ikinci kez eklenmez. Okuma telefonun içinde yapılır, hiçbir şey dışarı gönderilmez.</p>
+  <p class="hint">Belgeyi düz tut, iyi ışıkta ve tutar ile onay kodu çerçevenin içinde kalsın. Kamerayı fişe 15-20 cm uzaktan tut; çok yaklaşırsan görüntü bulanıklaşır. Görüntü bir an sabit kalınca kendiliğinden okunur. Aynı belge ikinci kez eklenmez. Okuma telefonun içinde yapılır, hiçbir şey dışarı gönderilmez.</p>
 </div>
 <canvas id="small"></canvas><canvas id="big"></canvas>
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
-<script src="a.js?v=3"></script>
+<script src="a.js?v=4"></script>
 <script>
 (() => {
   const KEY = "h1";
@@ -164,18 +163,20 @@ canvas{display:none}
     }catch{}
   }
 
-    const video = $("video"), small = $("small"), big = $("big");
+  const video = $("video"), small = $("small"), big = $("big");
   const sctx = small.getContext("2d", {willReadFrequently:true});
-  const bctx = big.getContext("2d", {willReadFrequently:true});
   small.width = 48; small.height = 64;
+  const frames = [0,1,2].map(() => document.createElement("canvas"));
   let worker = null, running = false, busy = false;
   let prev = null, lastRead = null, stableSince = 0, sawChange = true, lastResultAt = 0;
+  let tries = 0, notBank = 0, isVoid = 0, lastAdded = null;
+  const votes = new Map();
   const badge = t => { $("badge").textContent = t; };
   const guide = c => { $("guide").className = "guide" + (c ? " "+c : ""); };
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
 
   function grab(){
-    const vw = video.videoWidth, vh = video.videoHeight;
-    if (!vw) return null;
+    if (!video.videoWidth) return null;
     sctx.drawImage(video, 0, 0, 48, 64);
     const d = sctx.getImageData(0,0,48,64).data, g = new Uint8Array(48*64);
     for (let i=0,j=0;i<d.length;i+=4,j++) g[j] = (d[i]*3 + d[i+1]*6 + d[i+2]) / 10;
@@ -183,51 +184,86 @@ canvas{display:none}
   }
   const diff = (a,b) => { if(!a||!b) return 255; let s=0; for(let i=0;i<a.length;i++) s+=Math.abs(a[i]-b[i]); return s/a.length; };
 
-  function cropForOcr(){
+  function guideRect(){
     const vw = video.videoWidth, vh = video.videoHeight;
     const box = $("camBox").getBoundingClientRect();
     const scale = Math.max(box.width/vw, box.height/vh);
-    const dispW = vw*scale, dispH = vh*scale;
-    const offX = (dispW - box.width)/2, offY = (dispH - box.height)/2;
-    const gx = box.width*.08, gy = box.height*.06, gw = box.width*.84, gh = box.height*.88;
-    let sx = (gx+offX)/scale, sy = (gy+offY)/scale, sw = gw/scale, sh = gh/scale;
-    const target = Math.min(1600, Math.max(900, sw));
-    const k = target / sw;
-    big.width = Math.round(sw*k); big.height = Math.round(sh*k);
-    bctx.filter = "grayscale(1) contrast(1.6) brightness(1.1)";
-    bctx.drawImage(video, sx, sy, sw, sh, 0, 0, big.width, big.height);
-    bctx.filter = "none";
-    return big;
+    const offX = (vw*scale - box.width)/2, offY = (vh*scale - box.height)/2;
+    return { sx:(box.width*.08+offX)/scale, sy:(box.height*.06+offY)/scale, sw:box.width*.84/scale, sh:box.height*.88/scale };
+  }
+  function capture(cv){
+    const r = guideRect(), W = 1100, k = W / r.sw;
+    cv.width = W; cv.height = Math.round(r.sh * k);
+    const c = cv.getContext("2d", {willReadFrequently:true});
+    c.drawImage(video, r.sx, r.sy, r.sw, r.sh, 0, 0, cv.width, cv.height);
+    const g = P0.toGray(c.getImageData(0,0,cv.width,cv.height).data, cv.width*cv.height);
+    return { g, w:cv.width, h:cv.height, s:P0.sharpness(g, cv.width, cv.height) };
+  }
+  function toCanvas(f, boost){
+    big.width = f.w; big.height = f.h;
+    const c = big.getContext("2d"), id = c.createImageData(f.w, f.h), d = id.data;
+    for (let i=0,j=0;i<f.g.length;i++,j+=4){
+      let v = boost ? ((f.g[i]-128)*1.6+128)*1.1 : f.g[i];
+      v = v < 0 ? 0 : v > 255 ? 255 : v;
+      d[j]=d[j+1]=d[j+2]=v; d[j+3]=255;
+    }
+    c.putImageData(id, 0, 0); return big;
+  }
+  const near = (a,b) => a.length === b.length && [...a].filter((ch,i)=>ch!==b[i]).length <= 1;
+
+  function newScene(){ tries = 0; notBank = 0; isVoid = 0; }
+
+  function accept(cents, code, last4){
+    votes.clear();
+    const dup = items.find(o => o.cents === cents && near(o.code, code));
+    if (dup){
+      if (lastAdded && dup === lastAdded && Date.now() - lastAdded.at < 30000){ guide("ok"); badge("Okundu ✓ Sıradakini koy"); return; }
+      guide(""); badge("Bu zaten okunmuş");
+      show("warn",`Bu belge zaten okunmuş (${fmt(cents)} TL, onay ${dup.code}). Tekrar eklenmedi.`); beep(false); return;
+    }
+    const res = addItem(cents, code, last4);
+    lastAdded = res.ok; lastAdded.at = Date.now();
+    guide("ok"); badge(`Eklendi: ${fmt(cents)} TL · Sıradakini koy`); beep(true);
+    $("lcd").classList.remove("flash"); void $("lcd").offsetWidth; $("lcd").classList.add("flash");
+    show("ok",`Eklendi: ${fmt(cents)} TL · onay ${code}\nYanlışsa listeden silebilirsin.`);
   }
 
-  async function readNow(manual){
+  async function readRound(){
     if (busy || !worker) return;
     busy = true; guide("reading"); badge("Okunuyor…");
     try{
-      const img = cropForOcr();
-      const { data } = await worker.recognize(img);
-      const r = P0.parse(data.text || "");
-      lastRead = grab(); sawChange = false; lastResultAt = Date.now();
-      if (!r.doc){
-        guide(""); badge("Belgeyi çerçeveye koy");
-        if (manual) show("warn","Çerçevede belge göremedim. Yaklaştır ve ışığa dikkat et.");
-        return;
+      const shots = [];
+      for (let i=0;i<3;i++){ shots.push(capture(frames[i])); if (i<2) await sleep(110); }
+      shots.sort((a,b) => b.s - a.s);
+      const f = shots[0];
+      lastRead = grab(); sawChange = false; lastResultAt = Date.now(); tries++;
+      const now = Date.now();
+      for (const [k,v] of votes) if (now - v.t > 20000) votes.delete(k);
+      let sawDoc = false;
+      for (const [boost, psm] of [[false,"4"],[true,"6"]]){
+        await worker.setParameters({ tessedit_pageseg_mode: psm });
+        const { data } = await worker.recognize(toCanvas(f, boost));
+        const r = P0.parse(data.text || "");
+        if (!r.doc) continue;
+        sawDoc = true;
+        if (!r.okBank){ notBank++; continue; }
+        if (r.isVoid){ isVoid++; continue; }
+        if (r.cents && r.code){
+          const key = r.cents + "|" + r.code;
+          const v = votes.get(key) || {n:0};
+          v.n++; v.t = now; v.last4 = r.last4 || v.last4; votes.set(key, v);
+          if (v.n >= 2){ accept(r.cents, r.code, v.last4); return; }
+        }
       }
-      if (!r.okBank){ guide(""); badge("Banka uymuyor"); show("bad","Bu belge başka bankanın, eklenmedi."); beep(false); return; }
-      if (r.isVoid){ guide(""); badge("İptal/iade belgesi"); show("bad","Bu bir iptal veya iade belgesi, eklenmedi."); beep(false); return; }
-      if (!r.cents || !r.code){
-        sawChange = true; // tekrar denesin
-        guide(""); badge(!r.cents ? "Tutar okunamadı, biraz yaklaştır" : "Onay kodu okunamadı, biraz yaklaştır");
-        if (manual) show("warn", "Belge algılandı ama " + (!r.cents?"tutar":"onay kodu") + " okunamadı. Düz tut, biraz yaklaştır.");
-        return;
-      }
-      const res = addItem(r.cents, r.code, r.last4);
-      if (res.dup){ guide(""); badge("Bu zaten okundu"); show("warn",`Bu belge zaten okunmuş (${fmt(r.cents)} TL, onay ${r.code}). Tekrar eklenmedi.`); beep(false); return; }
-      guide("ok"); badge(`Eklendi: ${fmt(r.cents)} TL`); beep(true);
-      $("lcd").classList.remove("flash"); void $("lcd").offsetWidth; $("lcd").classList.add("flash");
-      show("ok",`Eklendi: ${fmt(r.cents)} TL · onay ${r.code}\nYanlışsa listeden silebilirsin.`);
+      if (notBank >= 3){ guide(""); badge("Başka banka, eklenmedi"); show("bad","Bu belge başka bankanın, eklenmedi."); beep(false); notBank = 0; tries = 99; return; }
+      if (isVoid >= 2){ guide(""); badge("İptal/iade, eklenmedi"); show("bad","Bu bir iptal veya iade belgesi, eklenmedi."); beep(false); isVoid = 0; tries = 99; return; }
+      guide("");
+      if (!sawDoc && tries >= 3){ badge("Belgeyi çerçeveye koy"); return; }
+      if (tries >= 8){ badge("Okunamadı. Fişi 15-20 cm uzakta, düz ve iyi ışıkta tut"); return; }
+      sawChange = true;
+      badge(tries >= 3 ? "Net değil: fişi 15-20 cm uzakta, düz ve sabit tut" : "Okunuyor, sabit tut…");
     }catch(e){
-      badge("Okuma hatası, tekrar deneniyor"); sawChange = true;
+      badge("Tekrar deneniyor…"); sawChange = true;
     }finally{ busy = false; }
   }
 
@@ -235,22 +271,25 @@ canvas{display:none}
     if (!running) return;
     const g = grab();
     if (g && !busy){
-      const moving = diff(g, prev) > 6;
+      const moving = diff(g, prev) > 8;
       prev = g;
-      if (moving){ stableSince = 0; if (diff(g, lastRead) > 12) sawChange = true; if (!busy) { guide(""); if (Date.now()-lastResultAt > 2500) badge("Sabit tut…"); } }
-      else {
+      if (moving){
+        stableSince = 0;
+        if (diff(g, lastRead) > 12){ if (!sawChange) newScene(); sawChange = true; }
+        if (Date.now() - lastResultAt > 2500){ guide(""); badge("Belgeyi çerçeveye koy, sabit tut"); }
+      } else {
         if (!stableSince) stableSince = Date.now();
-        if (sawChange && Date.now() - stableSince > 700) readNow(false);
+        if (sawChange && Date.now() - stableSince > 500) readRound();
       }
     }
-    setTimeout(loop, 250);
+    setTimeout(loop, 200);
   }
 
   async function start(){
     $("startBtn").disabled = true; $("startBtn").textContent = "Açılıyor…";
     beep(true);
     try{
-      const stream = await navigator.mediaDevices.getUserMedia({audio:false, video:{facingMode:{ideal:"environment"}, width:{ideal:1280}, height:{ideal:960}}});
+      const stream = await navigator.mediaDevices.getUserMedia({audio:false, video:{facingMode:{ideal:"environment"}, width:{ideal:1920}, height:{ideal:1440}}});
       video.muted = true; video.setAttribute("playsinline",""); video.setAttribute("muted","");
       video.srcObject = stream;
       $("startBox").hidden = true;
@@ -285,12 +324,11 @@ canvas{display:none}
   });
 
   $("startBtn").onclick = start;
-  $("nowBtn").onclick = () => { if (!worker) { show("warn","Önce kamerayı başlat."); return; } readNow(true); };
 
   const rb = $("resetBtn"); let rt;
   rb.onclick = () => {
     if (rb.classList.contains("armed")){
-      items = []; save(); render(); rb.classList.remove("armed"); rb.textContent = "Sıfırla"; show("ok","Toplam sıfırlandı."); sawChange = true;
+      items = []; votes.clear(); lastAdded = null; save(); render(); rb.classList.remove("armed"); rb.textContent = "Sıfırla"; show("ok","Toplam sıfırlandı."); sawChange = true;
     } else {
       rb.classList.add("armed"); rb.textContent = "Emin misin? Tekrar bas";
       clearTimeout(rt); rt = setTimeout(()=>{ rb.classList.remove("armed"); rb.textContent="Sıfırla"; },4000);

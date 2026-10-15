@@ -93,6 +93,65 @@
     return { doc, okBank, isVoid, cents, code, last4 };
   }
 
-  root.P0 = { parse, amountToCents, norm };
+  function toGray(rgba, n) {
+    const g = new Uint8ClampedArray(n);
+    for (let i = 0, j = 0; j < n; i += 4, j++) g[j] = (rgba[i] * 77 + rgba[i + 1] * 150 + rgba[i + 2] * 29) >> 8;
+    return g;
+  }
+
+  function pct(g, p) {
+    const h = new Uint32Array(256); for (let i = 0; i < g.length; i++) h[g[i]]++;
+    let t = g.length * p, s = 0; for (let v = 0; v < 256; v++) { s += h[v]; if (s >= t) return v; } return 255;
+  }
+
+  function paperBox(g, w, h) {
+    const t = Math.max(120, pct(g, 0.6));
+    const seen = new Uint8Array(w * h); let best = null;
+    const q = new Int32Array(w * h);
+    for (let s = 0; s < w * h; s++) {
+      if (seen[s] || g[s] < t) continue;
+      let qh = 0, qt = 0, n = 0, x0 = w, y0 = h, x1 = 0, y1 = 0;
+      q[qt++] = s; seen[s] = 1;
+      while (qh < qt) {
+        const p = q[qh++], x = p % w, y = (p / w) | 0; n++;
+        if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+        const nb = [x > 0 ? p - 1 : -1, x < w - 1 ? p + 1 : -1, y > 0 ? p - w : -1, y < h - 1 ? p + w : -1];
+        for (const k of nb) if (k >= 0 && !seen[k] && g[k] >= t) { seen[k] = 1; q[qt++] = k; }
+      }
+      if (!best || n > best.n) best = { n, x0, y0, x1, y1 };
+    }
+    if (!best || best.n < w * h * 0.04) return null;
+    const bw = best.x1 - best.x0 + 1, bh = best.y1 - best.y0 + 1;
+    if (best.n < bw * bh * 0.35) return null;
+    const mx = bw * 0.04 + 1, my = bh * 0.03 + 1;
+    const x = Math.max(0, best.x0 - mx), y = Math.max(0, best.y0 - my);
+    return { x: x / w, y: y / h, w: (Math.min(w, best.x1 + 1 + mx) - x) / w, h: (Math.min(h, best.y1 + 1 + my) - y) / h };
+  }
+
+  function sharpness(g, w, h) {
+    let s = 0, n = 0;
+    for (let y = 1; y < h - 1; y += 2) for (let x = 1; x < w - 1; x += 2) {
+      const i = y * w + x;
+      s += Math.abs(4 * g[i] - g[i - 1] - g[i + 1] - g[i - w] - g[i + w]); n++;
+    }
+    return n ? s / n : 0;
+  }
+
+  function enhance(g, w, h) {
+    const lo = pct(g, 0.02), hi = Math.max(lo + 1, pct(g, 0.9));
+    const k = 255 / (hi - lo);
+    const a = new Uint8ClampedArray(g.length);
+    for (let i = 0; i < g.length; i++) a[i] = (g[i] - lo) * k;
+    const out = new Uint8ClampedArray(g.length);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      if (x === 0 || y === 0 || x === w - 1 || y === h - 1) { out[i] = a[i]; continue; }
+      const b = (a[i - w - 1] + a[i - w] + a[i - w + 1] + a[i - 1] + a[i] + a[i + 1] + a[i + w - 1] + a[i + w] + a[i + w + 1]) / 9;
+      out[i] = a[i] + 1.2 * (a[i] - b);
+    }
+    return out;
+  }
+
+  root.P0 = { parse, amountToCents, norm, toGray, paperBox, sharpness, enhance };
   if (typeof module !== "undefined") module.exports = root.P0;
 })(typeof window !== "undefined" ? window : globalThis);
