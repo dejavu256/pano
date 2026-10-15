@@ -100,12 +100,12 @@ canvas{display:none}
     </form>
   </details>
 
-  <p class="hint">Belgeyi düz tut, iyi ışıkta ve tutar ile onay kodu çerçevenin içinde kalsın. Kamerayı fişe 15-20 cm uzaktan tut; çok yaklaşırsan görüntü bulanıklaşır. Görüntü bir an sabit kalınca kendiliğinden okunur. Aynı belge ikinci kez eklenmez. Okuma telefonun içinde yapılır, hiçbir şey dışarı gönderilmez.</p>
+  <p class="hint">Belgeyi düz tut, iyi ışıkta ve tutar ile onay kodu çerçevenin içinde kalsın. Kamerayı fişe 15-20 cm uzaktan tut; çok yaklaşırsan görüntü bulanıklaşır. Kendiliğinden okunur, bir iki saniye sabit tutman yeterli. Aynı belge ikinci kez eklenmez. Okuma telefonun içinde yapılır, hiçbir şey dışarı gönderilmez.</p>
 </div>
 <canvas id="small"></canvas><canvas id="big"></canvas>
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
-<script src="a.js?v=4"></script>
+<script src="a.js?v=5"></script>
 <script>
 (() => {
   const KEY = "h1";
@@ -192,7 +192,7 @@ canvas{display:none}
     return { sx:(box.width*.08+offX)/scale, sy:(box.height*.06+offY)/scale, sw:box.width*.84/scale, sh:box.height*.88/scale };
   }
   function capture(cv){
-    const r = guideRect(), W = 1100, k = W / r.sw;
+    const r = guideRect(), W = Math.round(Math.max(1000, Math.min(1600, r.sw))), k = W / r.sw;
     cv.width = W; cv.height = Math.round(r.sh * k);
     const c = cv.getContext("2d", {willReadFrequently:true});
     c.drawImage(video, r.sx, r.sy, r.sw, r.sh, 0, 0, cv.width, cv.height);
@@ -230,7 +230,7 @@ canvas{display:none}
 
   async function readRound(){
     if (busy || !worker) return;
-    busy = true; guide("reading"); badge("Okunuyor…");
+    busy = true; guide("reading");
     try{
       const shots = [];
       for (let i=0;i<3;i++){ shots.push(capture(frames[i])); if (i<2) await sleep(110); }
@@ -239,7 +239,7 @@ canvas{display:none}
       lastRead = grab(); sawChange = false; lastResultAt = Date.now(); tries++;
       const now = Date.now();
       for (const [k,v] of votes) if (now - v.t > 20000) votes.delete(k);
-      let sawDoc = false;
+      let sawDoc = false, seen = "";
       for (const [boost, psm] of [[false,"4"],[true,"6"]]){
         await worker.setParameters({ tessedit_pageseg_mode: psm });
         const { data } = await worker.recognize(toCanvas(f, boost));
@@ -248,6 +248,8 @@ canvas{display:none}
         sawDoc = true;
         if (!r.okBank){ notBank++; continue; }
         if (r.isVoid){ isVoid++; continue; }
+        if (r.cents && !r.code) seen = "Tutar " + fmt(r.cents) + " okundu, onay kodu okunuyor…";
+        if (!r.cents && r.code) seen = "Onay kodu okundu, tutar okunuyor…";
         if (r.cents && r.code){
           const key = r.cents + "|" + r.code;
           const v = votes.get(key) || {n:0};
@@ -258,10 +260,11 @@ canvas{display:none}
       if (notBank >= 3){ guide(""); badge("Başka banka, eklenmedi"); show("bad","Bu belge başka bankanın, eklenmedi."); beep(false); notBank = 0; tries = 99; return; }
       if (isVoid >= 2){ guide(""); badge("İptal/iade, eklenmedi"); show("bad","Bu bir iptal veya iade belgesi, eklenmedi."); beep(false); isVoid = 0; tries = 99; return; }
       guide("");
-      if (!sawDoc && tries >= 3){ badge("Belgeyi çerçeveye koy"); return; }
-      if (tries >= 8){ badge("Okunamadı. Fişi 15-20 cm uzakta, düz ve iyi ışıkta tut"); return; }
+      if (!sawDoc && tries >= 4){ badge("Belgeyi çerçeveye koy"); return; }
       sawChange = true;
-      badge(tries >= 3 ? "Net değil: fişi 15-20 cm uzakta, düz ve sabit tut" : "Okunuyor, sabit tut…");
+      if (seen) badge(seen);
+      else if (sawDoc) badge(tries >= 4 ? "Yazılar net değil: biraz uzaklaştır, düz ve sabit tut" : "Belge görüldü, okunuyor…");
+      else badge("Okunuyor…");
     }catch(e){
       badge("Tekrar deneniyor…"); sawChange = true;
     }finally{ busy = false; }
@@ -271,25 +274,18 @@ canvas{display:none}
     if (!running) return;
     const g = grab();
     if (g && !busy){
-      const moving = diff(g, prev) > 8;
-      prev = g;
-      if (moving){
-        stableSince = 0;
-        if (diff(g, lastRead) > 12){ if (!sawChange) newScene(); sawChange = true; }
-        if (Date.now() - lastResultAt > 2500){ guide(""); badge("Belgeyi çerçeveye koy, sabit tut"); }
-      } else {
-        if (!stableSince) stableSince = Date.now();
-        if (sawChange && Date.now() - stableSince > 500) readRound();
-      }
+      if (diff(g, lastRead) > 14){ if (!sawChange) newScene(); sawChange = true; }
+      if (sawChange) readRound();
+      else if (Date.now() - lastResultAt > 4000){ guide(""); badge("Sıradaki belgeyi çerçeveye koy"); }
     }
-    setTimeout(loop, 200);
+    setTimeout(loop, 250);
   }
 
   async function start(){
     $("startBtn").disabled = true; $("startBtn").textContent = "Açılıyor…";
     beep(true);
     try{
-      const stream = await navigator.mediaDevices.getUserMedia({audio:false, video:{facingMode:{ideal:"environment"}, width:{ideal:1920}, height:{ideal:1440}}});
+      const stream = await navigator.mediaDevices.getUserMedia({audio:false, video:{facingMode:{ideal:"environment"}, width:{ideal:3840}, height:{ideal:2160}}});
       video.muted = true; video.setAttribute("playsinline",""); video.setAttribute("muted","");
       video.srcObject = stream;
       $("startBox").hidden = true;

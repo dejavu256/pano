@@ -12,6 +12,8 @@
     m2: w([75,82,69,68,73])
   };
 
+  const O = [[71,65,82,65,78,84,73],[65,75,66,65,78,75],[89,65,80,73,75,82,69,68,73],[72,65,76,75,66,65,78,75],[86,65,75,73,70],[68,69,78,73,90,66,65,78,75],[81,78,66],[70,73,78,65,78,83,66,65,78,75],[73,83,66,65,78,75],[73,83,66,65,78,75,65,83,73],[75,85,86,69,89,84],[65,76,66,65,82,65,75,65],[83,69,75,69,82,66,65,78,75],[79,68,69,65],[73,78,71,66,65,78,75],[72,83,66,67],[70,73,66,65,66,65,78,75,65],[69,77,76,65,75,66,65,78,75],[86,65,75,73,70,66,65,78,75]].map(w);
+
   function norm(t) {
     return String(t || "")
       .replace(/[İIıiÎ]/g, m => (m === "ı" || m === "i") ? "I" : "I")
@@ -84,7 +86,9 @@
     let hits = 0;
     [K.amount, K.code, K.sale, K.m1, K.m2, "TL"].forEach(k => { if (flat.includes(k)) hits++; });
     const doc = hits >= 2;
-    const okBank = flat.includes(K.bank) || flat.includes(K.bank2) || new RegExp(w([90,46,63,73,63,82,65,65,84])).test(flat);
+    const own = flat.includes(K.bank) || flat.includes(K.bank2) || new RegExp(w([90,46,63,73,63,82,65,65,84])).test(flat);
+    const other = O.some(o => flat.includes(o));
+    const okBank = own || !other;
     const isVoid = flat.includes(K.v1) || (flat.includes(K.v2) && !flat.includes(K.sale));
     const cents = findAmount(lines);
     const code = findCode(lines, flat);
