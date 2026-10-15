@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Hesap">
+<meta name="robots" content="noindex,nofollow,noarchive">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#0c1210">
+<title>Hesap</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+:root{
+  --bg:#0c1210; --panel:#141c19; --fg:#e7eeeb; --muted:#93a29c; --line:#26312d;
+  --accent:#2bb889; --accent-fg:#06140f; --lcd:#050a08; --lcd-fg:#7dffc4;
+  --warn:#f0a35a; --warn-bg:#2a1e10; --bad:#ff8a80; --bad-bg:#2c1513; --ok-bg:#10261e;
+  --display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  --body:"Barlow",system-ui,-apple-system,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--body);font-size:16px;-webkit-text-size-adjust:100%}
+.wrap{max-width:520px;margin:0 auto;padding-left:max(14px,env(safe-area-inset-left,0px));padding-right:max(14px,env(safe-area-inset-right,0px));padding-top:max(12px,env(safe-area-inset-top,0px));padding-bottom:max(30px,env(safe-area-inset-bottom,0px));display:grid;gap:12px}
+.lcd{background:var(--lcd);color:var(--lcd-fg);border-radius:14px;padding:14px 16px 10px;display:grid;gap:2px;border:1px solid var(--line)}
+.lcd .lbl{font-family:var(--display);letter-spacing:.12em;text-transform:uppercase;font-size:14px;opacity:.75;display:flex;justify-content:space-between}
+.lcd .total{font-family:var(--mono);font-size:clamp(36px,11vw,52px);line-height:1.05;font-variant-numeric:tabular-nums;word-break:break-all}
+.lcd .total small{font-size:.45em;margin-left:6px}
+.lcd.flash{animation:fl .7s ease}
+@keyframes fl{0%{background:var(--accent);color:var(--accent-fg)}100%{background:var(--lcd)}}
+.cam{position:relative;border-radius:14px;overflow:hidden;background:#000;aspect-ratio:3/4;max-height:58vh;width:100%;margin:0 auto}
+.cam video{width:100%;height:100%;object-fit:cover;display:block}
+.guide{position:absolute;inset:6% 8%;border:2px dashed rgba(255,255,255,.55);border-radius:10px;pointer-events:none;transition:border-color .2s}
+.guide.reading{border-color:var(--warn);border-style:solid}
+.guide.ok{border-color:var(--accent);border-style:solid}
+.cam .badge{position:absolute;left:10px;right:10px;bottom:10px;background:rgba(0,0,0,.7);color:#fff;border-radius:10px;padding:9px 12px;font-weight:600;font-size:15px;text-align:center;line-height:1.3}
+.start{position:absolute;inset:0;display:grid;place-items:center;background:var(--panel)}
+.btn{appearance:none;border:1px solid var(--line);background:var(--panel);color:var(--fg);border-radius:10px;padding:12px 14px;font:600 15px var(--body);cursor:pointer;flex:1 1 auto}
+.btn.primary{background:var(--accent);color:var(--accent-fg);border:0;font:700 24px var(--display);letter-spacing:.04em;padding:18px 26px}
+.btn.danger{color:var(--bad);border-color:var(--bad)}
+.btn.danger.armed{background:var(--bad);color:var(--bg)}
+.btn:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.status{border-radius:10px;padding:11px 14px;font-weight:500;line-height:1.35;white-space:pre-line}
+.status.ok{background:var(--ok-bg)}
+.status.warn{background:var(--warn-bg);color:var(--warn)}
+.status.bad{background:var(--bad-bg);color:var(--bad)}
+h2{font-family:var(--display);font-size:17px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:6px 0 0;font-weight:600}
+.list{display:grid;gap:8px;margin:0;padding:0;list-style:none}
+.item{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:grid;grid-template-columns:1fr auto auto;gap:3px 12px;align-items:center}
+.item .amt{font-family:var(--mono);font-size:20px;font-variant-numeric:tabular-nums}
+.item .meta{grid-column:1/2;color:var(--muted);font-size:13px;font-family:var(--mono)}
+.item .no{grid-row:1/3;grid-column:2;font-family:var(--display);color:var(--muted)}
+.x{grid-row:1/3;grid-column:3;appearance:none;border:1px solid var(--line);background:transparent;color:var(--muted);border-radius:8px;min-width:40px;height:40px;font-size:17px;cursor:pointer}
+.x.armed{background:var(--bad);color:var(--bg);border-color:var(--bad);padding:0 10px;font:600 13px var(--body)}
+.empty{color:var(--muted);text-align:center;padding:16px;border:1px dashed var(--line);border-radius:10px;line-height:1.5}
+details{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+summary{cursor:pointer;font-weight:600}
+form.manual{display:grid;gap:8px;margin-top:10px}
+form.manual label{display:grid;gap:4px;font-size:14px;color:var(--muted)}
+form.manual input{font:500 17px var(--mono);padding:10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg);min-width:0}
+.hint{color:var(--muted);font-size:13px;line-height:1.45;margin:0}
+canvas{display:none}
+@media (prefers-reduced-motion:reduce){.lcd.flash{animation:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <section class="lcd" id="lcd" aria-live="polite">
+    <div class="lbl"><span>Toplam</span><span id="count">0 adet</span></div>
+    <div class="total"><span id="total">0,00</span><small>TL</small></div>
+  </section>
+
+  <div class="cam" id="camBox">
+    <video id="video" playsinline muted autoplay></video>
+    <div class="guide" id="guide"></div>
+    <div class="badge" id="badge">Belgeyi çerçeveye koy</div>
+    <div class="start" id="startBox">
+      <button class="btn primary" id="startBtn" type="button">Kamerayı Başlat</button>
+    </div>
+  </div>
+
+  <div id="status" class="status" hidden></div>
+
+  <div class="row">
+    <button class="btn" id="nowBtn" type="button">Şimdi oku</button>
+    <button class="btn danger" id="resetBtn" type="button">Sıfırla</button>
+  </div>
+
+  <h2>Okunanlar</h2>
+  <ul class="list" id="list"></ul>
+
+  <details>
+    <summary>Elle ekle</summary>
+    <form class="manual" id="manual">
+      <label for="mAmt">Tutar (TL)<input id="mAmt" inputmode="decimal" placeholder="1500,00" autocomplete="off"></label>
+      <label for="mCode">Onay kodu<input id="mCode" inputmode="numeric" placeholder="948063" autocomplete="off"></label>
+      <button class="btn" type="submit">Ekle</button>
+    </form>
+  </details>
+
+  <p class="hint">Belgeyi düz tut, iyi ışıkta ve tutar ile onay kodu çerçevenin içinde kalsın. Görüntü bir an sabit kalınca kendiliğinden okunur. Aynı belge ikinci kez eklenmez. Okuma telefonun içinde yapılır, hiçbir şey dışarı gönderilmez.</p>
+</div>
+<canvas id="small"></canvas><canvas id="big"></canvas>
+
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<script src="a.js"></script>
+<script>
+(() => {
+  const KEY = "h1";
+  const $ = id => document.getElementById(id);
+  const fmt = c => (c/100).toLocaleString("tr-TR",{minimumFractionDigits:2,maximumFractionDigits:2});
+  let items = [];
+  try { items = JSON.parse(localStorage.getItem(KEY) || "[]") || []; } catch { items = []; }
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(items)); } catch {} };
+  const keyOf = s => s.code + "|" + s.cents;
+
+    function render(){
+    const sum = items.reduce((a,s)=>a+s.cents,0);
+    $("total").textContent = fmt(sum);
+    $("count").textContent = items.length + " adet";
+    const ul = $("list"); ul.textContent = "";
+    if (!items.length){
+      const li = document.createElement("li"); li.className="empty";
+      li.textContent = "Henüz kayıt yok. Kamerayı başlat ve ilk belgeyi çerçeveye koy.";
+      ul.append(li); return;
+    }
+    items.slice().reverse().forEach((s, ri) => {
+      const idx = items.length - 1 - ri;
+      const li = document.createElement("li"); li.className="item";
+      const a = document.createElement("div"); a.className="amt"; a.textContent = fmt(s.cents)+" TL";
+      const m = document.createElement("div"); m.className="meta";
+      m.textContent = "Onay "+s.code + (s.last4?" · **"+s.last4:"") + " · " + s.time;
+      const n = document.createElement("div"); n.className="no"; n.textContent = "#"+(idx+1);
+      const x = document.createElement("button"); x.className="x"; x.type="button"; x.setAttribute("aria-label","Sil"); x.textContent="✕";
+      x.onclick = () => {
+        if (x.classList.contains("armed")){ items.splice(idx,1); save(); render(); show("ok","Silindi."); }
+        else { x.classList.add("armed"); x.textContent="Sil?"; setTimeout(()=>{ if(x.isConnected){x.classList.remove("armed");x.textContent="✕";} },3000); }
+      };
+      li.append(a,n,x,m); ul.append(li);
+    });
+  }
+  let hideT;
+  function show(kind, msg){
+    const el = $("status"); el.className = "status "+kind; el.textContent = msg; el.hidden = false;
+    clearTimeout(hideT); hideT = setTimeout(()=>{ el.hidden = true; }, 7000);
+  }
+  function addItem(cents, code, last4){
+    const s = {cents, code:String(code), last4:last4||"", time:new Date().toLocaleTimeString("tr-TR",{hour:"2-digit",minute:"2-digit"})};
+    if (items.some(o => keyOf(o) === keyOf(s))) return {dup:s};
+    items.push(s); save(); render(); return {ok:s};
+  }
+
+    let actx;
+  function beep(ok){
+    try{
+      actx = actx || new (window.AudioContext||window.webkitAudioContext)();
+      const o = actx.createOscillator(), g = actx.createGain();
+      o.frequency.value = ok ? 1320 : 330; o.connect(g); g.connect(actx.destination);
+      g.gain.setValueAtTime(.18, actx.currentTime); g.gain.exponentialRampToValueAtTime(.001, actx.currentTime + (ok?.18:.35));
+      o.start(); o.stop(actx.currentTime + (ok?.2:.4));
+    }catch{}
+  }
+
+    const video = $("video"), small = $("small"), big = $("big");
+  const sctx = small.getContext("2d", {willReadFrequently:true});
+  const bctx = big.getContext("2d", {willReadFrequently:true});
+  small.width = 48; small.height = 64;
+  let worker = null, running = false, busy = false;
+  let prev = null, lastRead = null, stableSince = 0, sawChange = true, lastResultAt = 0;
+  const badge = t => { $("badge").textContent = t; };
+  const guide = c => { $("guide").className = "guide" + (c ? " "+c : ""); };
+
+  function grab(){
+    const vw = video.videoWidth, vh = video.videoHeight;
+    if (!vw) return null;
+    sctx.drawImage(video, 0, 0, 48, 64);
+    const d = sctx.getImageData(0,0,48,64).data, g = new Uint8Array(48*64);
+    for (let i=0,j=0;i<d.length;i+=4,j++) g[j] = (d[i]*3 + d[i+1]*6 + d[i+2]) / 10;
+    return g;
+  }
+  const diff = (a,b) => { if(!a||!b) return 255; let s=0; for(let i=0;i<a.length;i++) s+=Math.abs(a[i]-b[i]); return s/a.length; };
+
+  function cropForOcr(){
+    const vw = video.videoWidth, vh = video.videoHeight;
+    const box = $("camBox").getBoundingClientRect();
+    const scale = Math.max(box.width/vw, box.height/vh);
+    const dispW = vw*scale, dispH = vh*scale;
+    const offX = (dispW - box.width)/2, offY = (dispH - box.height)/2;
+    const gx = box.width*.08, gy = box.height*.06, gw = box.width*.84, gh = box.height*.88;
+    let sx = (gx+offX)/scale, sy = (gy+offY)/scale, sw = gw/scale, sh = gh/scale;
+    const target = Math.min(1600, Math.max(900, sw));
+    const k = target / sw;
+    big.width = Math.round(sw*k); big.height = Math.round(sh*k);
+    bctx.filter = "grayscale(1) contrast(1.6) brightness(1.1)";
+    bctx.drawImage(video, sx, sy, sw, sh, 0, 0, big.width, big.height);
+    bctx.filter = "none";
+    return big;
+  }
+
+  async function readNow(manual){
+    if (busy || !worker) return;
+    busy = true; guide("reading"); badge("Okunuyor…");
+    try{
+      const img = cropForOcr();
+      const { data } = await worker.recognize(img);
+      const r = P0.parse(data.text || "");
+      lastRead = grab(); sawChange = false; lastResultAt = Date.now();
+      if (!r.doc){
+        guide(""); badge("Belgeyi çerçeveye koy");
+        if (manual) show("warn","Çerçevede belge göremedim. Yaklaştır ve ışığa dikkat et.");
+        return;
+      }
+      if (!r.okBank){ guide(""); badge("Banka uymuyor"); show("bad","Bu belge başka bankanın, eklenmedi."); beep(false); return; }
+      if (r.isVoid){ guide(""); badge("İptal/iade belgesi"); show("bad","Bu bir iptal veya iade belgesi, eklenmedi."); beep(false); return; }
+      if (!r.cents || !r.code){
+        sawChange = true; // tekrar denesin
+        guide(""); badge(!r.cents ? "Tutar okunamadı, biraz yaklaştır" : "Onay kodu okunamadı, biraz yaklaştır");
+        if (manual) show("warn", "Belge algılandı ama " + (!r.cents?"tutar":"onay kodu") + " okunamadı. Düz tut, biraz yaklaştır.");
+        return;
+      }
+      const res = addItem(r.cents, r.code, r.last4);
+      if (res.dup){ guide(""); badge("Bu zaten okundu"); show("warn",`Bu belge zaten okunmuş (${fmt(r.cents)} TL, onay ${r.code}). Tekrar eklenmedi.`); beep(false); return; }
+      guide("ok"); badge(`Eklendi: ${fmt(r.cents)} TL`); beep(true);
+      $("lcd").classList.remove("flash"); void $("lcd").offsetWidth; $("lcd").classList.add("flash");
+      show("ok",`Eklendi: ${fmt(r.cents)} TL · onay ${r.code}\nYanlışsa listeden silebilirsin.`);
+    }catch(e){
+      badge("Okuma hatası, tekrar deneniyor"); sawChange = true;
+    }finally{ busy = false; }
+  }
+
+  function loop(){
+    if (!running) return;
+    const g = grab();
+    if (g && !busy){
+      const moving = diff(g, prev) > 6;
+      prev = g;
+      if (moving){ stableSince = 0; if (diff(g, lastRead) > 12) sawChange = true; if (!busy) { guide(""); if (Date.now()-lastResultAt > 2500) badge("Sabit tut…"); } }
+      else {
+        if (!stableSince) stableSince = Date.now();
+        if (sawChange && Date.now() - stableSince > 700) readNow(false);
+      }
+    }
+    setTimeout(loop, 250);
+  }
+
+  async function start(){
+    $("startBtn").disabled = true; $("startBtn").textContent = "Açılıyor…";
+    beep(true);
+    try{
+      const stream = await navigator.mediaDevices.getUserMedia({audio:false, video:{facingMode:{ideal:"environment"}, width:{ideal:1920}, height:{ideal:1440}}});
+      video.srcObject = stream; await video.play();
+      try { const t = stream.getVideoTracks()[0]; const c = t.getCapabilities?.(); if (c?.focusMode?.includes("continuous")) t.applyConstraints({advanced:[{focusMode:"continuous"}]}); } catch{}
+      $("startBox").hidden = true;
+      try { await navigator.wakeLock?.request("screen"); } catch{}
+    }catch(e){
+      $("startBtn").disabled = false; $("startBtn").textContent = "Kamerayı Başlat";
+      show("bad","Kamera açılamadı. Safari'de bu siteye kamera izni ver (aA menüsü › Web Sitesi Ayarları › Kamera) ve tekrar dene.");
+      return;
+    }
+    badge("Okuyucu hazırlanıyor… (ilk açılışta biraz sürer)");
+    try{
+      worker = await Tesseract.createWorker("tur");
+      await worker.setParameters({ tessedit_pageseg_mode: "4", preserve_interword_spaces: "1" });
+    }catch(e){
+      badge("Okuyucu yüklenemedi"); show("bad","Metin okuyucu yüklenemedi. İnternet bağlantını kontrol edip sayfayı yenile."); return;
+    }
+    badge("Belgeyi çerçeveye koy");
+    running = true; loop();
+  }
+
+  document.addEventListener("visibilitychange", async () => {
+    if (document.visibilityState === "visible" && running) { try { await navigator.wakeLock?.request("screen"); } catch{} }
+  });
+
+  $("startBtn").onclick = start;
+  $("nowBtn").onclick = () => { if (!worker) { show("warn","Önce kamerayı başlat."); return; } readNow(true); };
+
+  const rb = $("resetBtn"); let rt;
+  rb.onclick = () => {
+    if (rb.classList.contains("armed")){
+      items = []; save(); render(); rb.classList.remove("armed"); rb.textContent = "Sıfırla"; show("ok","Toplam sıfırlandı."); sawChange = true;
+    } else {
+      rb.classList.add("armed"); rb.textContent = "Emin misin? Tekrar bas";
+      clearTimeout(rt); rt = setTimeout(()=>{ rb.classList.remove("armed"); rb.textContent="Sıfırla"; },4000);
+    }
+  };
+
+  $("manual").addEventListener("submit", e => {
+    e.preventDefault();
+    const cents = P0.amountToCents($("mAmt").value);
+    const code = $("mCode").value.replace(/\D/g,"");
+    if (!(cents > 0)) return show("warn","Tutarı yaz.");
+    if (!code) return show("warn","Onay kodunu yaz.");
+    const res = addItem(cents, code, "");
+    if (res.dup) show("warn","Bu zaten ekli, tekrar eklenmedi.");
+    else { show("ok",`Eklendi: ${fmt(cents)} TL`); $("mAmt").value=""; $("mCode").value=""; }
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>
