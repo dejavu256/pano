@@ -249,8 +249,17 @@ canvas{display:none}
     $("startBtn").disabled = true; $("startBtn").textContent = "Açılıyor…";
     beep(true);
     try{
-      const stream = await navigator.mediaDevices.getUserMedia({audio:false, video:{facingMode:{ideal:"environment"}, width:{ideal:1920}, height:{ideal:1440}}});
-      video.srcObject = stream; await video.play();
+      const stream = await navigator.mediaDevices.getUserMedia({audio:false, video:{facingMode:{ideal:"environment"}, width:{ideal:1280}, height:{ideal:960}}});
+      video.muted = true; video.setAttribute("playsinline",""); video.setAttribute("muted","");
+      video.srcObject = stream;
+      $("startBox").hidden = true;
+      const p = video.play(); if (p && p.catch) p.catch(()=>{});
+      await Promise.race([
+        new Promise(r => { if (video.readyState >= 1) r(); else video.addEventListener("loadedmetadata", r, {once:true}); }),
+        new Promise(r => setTimeout(r, 3000))
+      ]);
+      video.play().catch(()=>{});
+      $("camBox").addEventListener("click", () => { if (video.paused) video.play().catch(()=>{}); });
       try { const t = stream.getVideoTracks()[0]; const c = t.getCapabilities?.(); if (c?.focusMode?.includes("continuous")) t.applyConstraints({advanced:[{focusMode:"continuous"}]}); } catch{}
       $("startBox").hidden = true;
       try { await navigator.wakeLock?.request("screen"); } catch{}
