@@ -105,7 +105,7 @@ canvas{display:none}
 <canvas id="small"></canvas><canvas id="big"></canvas>
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
-<script src="a.js?v=5"></script>
+<script src="a.js?v=6"></script>
 <script>
 (() => {
   const KEY = "h1";
@@ -167,7 +167,7 @@ canvas{display:none}
   const sctx = small.getContext("2d", {willReadFrequently:true});
   small.width = 48; small.height = 64;
   const frames = [0,1,2].map(() => document.createElement("canvas"));
-  let worker = null, running = false, busy = false;
+  let worker = null, workers = [], running = false, busy = false;
   let prev = null, lastRead = null, stableSince = 0, sawChange = true, lastResultAt = 0;
   let tries = 0, notBank = 0, isVoid = 0, lastAdded = null;
   const votes = new Map();
@@ -192,22 +192,23 @@ canvas{display:none}
     return { sx:(box.width*.08+offX)/scale, sy:(box.height*.06+offY)/scale, sw:box.width*.84/scale, sh:box.height*.88/scale };
   }
   function capture(cv){
-    const r = guideRect(), W = Math.round(Math.max(1000, Math.min(1600, r.sw))), k = W / r.sw;
+    const r = guideRect(), W = Math.round(Math.max(1000, Math.min(1150, r.sw))), k = W / r.sw;
     cv.width = W; cv.height = Math.round(r.sh * k);
     const c = cv.getContext("2d", {willReadFrequently:true});
     c.drawImage(video, r.sx, r.sy, r.sw, r.sh, 0, 0, cv.width, cv.height);
     const g = P0.toGray(c.getImageData(0,0,cv.width,cv.height).data, cv.width*cv.height);
     return { g, w:cv.width, h:cv.height, s:P0.sharpness(g, cv.width, cv.height) };
   }
-  function toCanvas(f, boost){
-    big.width = f.w; big.height = f.h;
-    const c = big.getContext("2d"), id = c.createImageData(f.w, f.h), d = id.data;
+  const outs = [document.createElement("canvas"), document.createElement("canvas")];
+  function toCanvas(f, boost, cv){
+    cv.width = f.w; cv.height = f.h;
+    const c = cv.getContext("2d"), id = c.createImageData(f.w, f.h), d = id.data;
     for (let i=0,j=0;i<f.g.length;i++,j+=4){
       let v = boost ? ((f.g[i]-128)*1.6+128)*1.1 : f.g[i];
       v = v < 0 ? 0 : v > 255 ? 255 : v;
       d[j]=d[j+1]=d[j+2]=v; d[j+3]=255;
     }
-    c.putImageData(id, 0, 0); return big;
+    c.putImageData(id, 0, 0); return cv;
   }
   const near = (a,b) => a.length === b.length && [...a].filter((ch,i)=>ch!==b[i]).length <= 1;
 
@@ -233,17 +234,17 @@ canvas{display:none}
     busy = true; guide("reading");
     try{
       const shots = [];
-      for (let i=0;i<3;i++){ shots.push(capture(frames[i])); if (i<2) await sleep(110); }
+      for (let i=0;i<2;i++){ shots.push(capture(frames[i])); if (i<1) await sleep(90); }
       shots.sort((a,b) => b.s - a.s);
       const f = shots[0];
       lastRead = grab(); sawChange = false; lastResultAt = Date.now(); tries++;
       const now = Date.now();
       for (const [k,v] of votes) if (now - v.t > 20000) votes.delete(k);
       let sawDoc = false, seen = "";
-      for (const [boost, psm] of [[false,"4"],[true,"6"]]){
-        await worker.setParameters({ tessedit_pageseg_mode: psm });
-        const { data } = await worker.recognize(toCanvas(f, boost));
-        const r = P0.parse(data.text || "");
+      const texts = await Promise.all(workers.map((wk, i) =>
+        wk.recognize(toCanvas(f, i === 1, outs[i])).then(x => x.data.text || "", () => "")));
+      for (const text of texts){
+        const r = P0.parse(text);
         if (!r.doc) continue;
         sawDoc = true;
         if (!r.okBank){ notBank++; continue; }
@@ -285,7 +286,7 @@ canvas{display:none}
     $("startBtn").disabled = true; $("startBtn").textContent = "Açılıyor…";
     beep(true);
     try{
-      const stream = await navigator.mediaDevices.getUserMedia({audio:false, video:{facingMode:{ideal:"environment"}, width:{ideal:3840}, height:{ideal:2160}}});
+      const stream = await navigator.mediaDevices.getUserMedia({audio:false, video:{facingMode:{ideal:"environment"}, width:{ideal:1920}, height:{ideal:1080}}});
       video.muted = true; video.setAttribute("playsinline",""); video.setAttribute("muted","");
       video.srcObject = stream;
       $("startBox").hidden = true;
@@ -306,8 +307,10 @@ canvas{display:none}
     }
     badge("Okuyucu hazırlanıyor… (ilk açılışta biraz sürer)");
     try{
-      worker = await Tesseract.createWorker("tur");
-      await worker.setParameters({ tessedit_pageseg_mode: "4", preserve_interword_spaces: "1" });
+      workers = await Promise.all([Tesseract.createWorker("tur"), Tesseract.createWorker("tur")]);
+      await workers[0].setParameters({ tessedit_pageseg_mode: "4", preserve_interword_spaces: "1" });
+      await workers[1].setParameters({ tessedit_pageseg_mode: "6", preserve_interword_spaces: "1" });
+      worker = workers[0];
     }catch(e){
       badge("Okuyucu yüklenemedi"); show("bad","Metin okuyucu yüklenemedi. İnternet bağlantını kontrol edip sayfayı yenile."); return;
     }
